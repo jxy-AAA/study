@@ -1,140 +1,83 @@
-class Animator:  #@save
-    """在动画中绘制数据"""
-    def __init__(self, xlabel=None, ylabel=None, legend=None, xlim=None,
-                 ylim=None, xscale='linear', yscale='linear',
-                 fmts=('-', 'm--', 'g-.', 'r:'), nrows=1, ncols=1,
-                 figsize=(3.5, 2.5)):
-        #绘制多条线
-        if legend is None:
-            legend = []
-       
-        d2l.use_svg_display()
-        self.fig, self.axes = d2l.plt.subplots(nrows, ncols, figsize=figsize)
-        if nrows * ncols == 1:
-            self.axes = [self.axes, ]  
-        self.config_axes = lambda: d2l.set_axes(
-            self.axes[0], xlabel, ylabel, xlim, ylim, xscale, yscale, legend)
-        self.X, self.Y, self.fmts = None, None, fmts
-    
-    def add(self, x, y):
-        # 向图像中添加多个数据
-        if not hasattr(y, "__len__"):
-            y = [y]
-        n = len(y)
-        if not hasattr(x, "__len__"):
-            x = [x] * n
-        if self.X is None:
-            self.X = [[] for _ in range(n)]
-            self.Y = [[] for _ in range(n)]
-        for i, (a, b) in enumerate(zip(x, y)):
-            if a is not None and b is not None:
-                self.X[i].append(a)
-                self.Y[i].append(b)
-        self.axes[0].cla()
-        for x, y, fmt in zip(self.X, self.Y, self.fmts):
-            self.axes[0].plot(x, y, fmt)
-        self.config_axes()
-        display.display(self.fig)
-        display.clear_output(wait=True)
+import argparse
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 
 
-def set_axes(axes,xlabel,ylabel,xlim,ylim,xscale,yscale,legend):
-    axes.set_xlabel(xlabel)
-    axes.set_ylabel(ylabel)
-    axes.set_xscale(xscale)
-    axes.set_yscale(yscale)
-    axes.set_xlim(xlim)
-    axes.set_ylim(ylim)
-    if legend:
-        axes.legend(legend)
-    axes.grid()
-
-#@save
-def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None, ylim=None, xscale='linear', yscale='linear', fmts=('-', 'm--', 'g-.', 'r:'), 
-         figsize=(3.5, 2.5), axes=None):
-    if legend is None:
-        legend = []
-    set_figsize(figsize)
-    axes = axes if axes else d2l.plt.gca()
-    def has_one_axis(X):
-        return (hasattr(X, "ndim") and X.ndim == 1 or isinstance(X, list)
-                and not hasattr(X[0],"__len__"))
-
-    if has_one_axis(X):
-        X=[X]
-    if Y is None:
-        X, Y = [[]] * len(X),X
-    elif has_one_axis(Y):
-        Y=[Y]
-    if len(X) != len(Y):
-        X=X*len(Y)
-    axes.cla()
-    for x, y, fmt in zip(X, Y, fmts):
-        if len(x):
-            axes.plot(x, y, fmt)
-        else:
-            axes.plot(y, fmt)
-    set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend)
+def read_jsonl(log_path):
+    rows = []
+    with log_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    if not rows:
+        raise ValueError(f"No training records found in: {log_path}")
+    return rows
 
 
+def draw_from_log(log_path, out_dir, prefix="train", show=True):
+    rows = read_jsonl(log_path)
+    epochs = [row["epoch"] for row in rows]
 
-def show_images(imgs,num_rows,num_cols,titles=None,scale=1.5):   #@save
-    """绘制图像列表"""
-    figsize=(num_cols*scale, num_rows*scale)
-    _, axes=d2l.plt.subplots(num_rows, num_cols, figsize=figsize)
-    axes = axes.flatten()
-    for i, (ax,img) in enumerate(zip(axes, imgs)):
-        if torch.is_tensor(img):
-            #图像张量
-            ax.imshow(img.numpy())
-        else:
-            #PIL图像
-            ax.imshow(img)
-        ax.axes.get_xaxis().set_visible(False)
-        ax.axes.get_yaxis().set_visible(False)
-        if titles:
-            ax.set_title(titles[i])
-    return axes
+    train_loss = [row.get("train_loss") for row in rows]
+    train_acc = [row.get("train_acc") for row in rows]
+    test_acc = [row.get("test_acc", row.get("val_acc")) for row in rows]
 
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-def use_svg_display():  #@save
-    backend_inline.set_matplotlib_formats('svg')
+    fig1, ax1 = plt.subplots(figsize=(7, 4))
+    ax1.plot(epochs, train_loss, label="train_loss", linewidth=2)
+    ax1.set_xlabel("epoch")
+    ax1.set_ylabel("loss")
+    ax1.grid(True, linestyle="--", alpha=0.4)
+    ax1.legend()
+    fig1.tight_layout()
+    loss_path = out_dir / f"{prefix}_loss_curve.png"
+    fig1.savefig(loss_path, dpi=150)
 
-def set_figsize(figsize=(3.5,2.5)):  
-    use_svg_display()
-    d2l.plt.rcParams['figure.figsize']=figsize
+    fig2, ax2 = plt.subplots(figsize=(7, 4))
+    ax2.plot(epochs, train_acc, label="train_acc", linewidth=2)
+    ax2.plot(epochs, test_acc, label="test_acc", linewidth=2)
+    ax2.set_xlabel("epoch")
+    ax2.set_ylabel("accuracy")
+    ax2.set_ylim(0.0, 1.0)
+    ax2.grid(True, linestyle="--", alpha=0.4)
+    ax2.legend()
+    fig2.tight_layout()
+    acc_path = out_dir / f"{prefix}_acc_curve.png"
+    fig2.savefig(acc_path, dpi=150)
 
+    print(f"Saved: {loss_path}")
+    print(f"Saved: {acc_path}")
 
-
-def accuracy(y_hat, y):   #@save
-    """计算预测正确的数量（分类精度）"""
-    if len(y_hat.shape)>1 and y_hat.shape[1]>1:
-        y_hat=y_hat.argmax(axis=1)
-    cmp = y_hat.type(y.dtype)==y
-    return float(cmp.type(y.dtype).sum())
-
-def evaluate_accuracy(net, data_iter):   #@save
-    """计算指定数据集上模型的精度"""
-    if isinstance(net, torch.nn.Module):
-        net.eval()
-    metric = Accumulator(2)
-    with torch.no_grad():
-        for X,y in data_iter:
-            metric.add(accuracy(net(X),y),y.numel())
-    return metric[0]/metric[1]
+    if show:
+        plt.show()
+    else:
+        plt.close(fig1)
+        plt.close(fig2)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Draw training curves from JSONL log.")
+    parser.add_argument("--log", type=str, required=True, help="Path to training jsonl log.")
+    parser.add_argument("--out-dir", type=str, default=".", help="Output directory.")
+    parser.add_argument("--prefix", type=str, default="train", help="Output file name prefix.")
+    parser.add_argument("--no-show", action="store_true", help="Do not open interactive plot window.")
+    return parser.parse_args()
 
 
-class Accumulator:   #@save
-    """在n个变量上累加"""
-    def __init__(self,n):
-        self.data=[0.0]*n
-    def add(self,*args):
-        self.data = [a+float(b) for a, b in zip(self.data,args)]
+def main():
+    args = parse_args()
+    draw_from_log(
+        log_path=Path(args.log),
+        out_dir=Path(args.out_dir),
+        prefix=args.prefix,
+        show=not args.no_show,
+    )
 
-    def reset(self):
-        self.data = [0.0]*len(self.data)
 
-    def __getitem__(self, idx):
-        return self.data[idx]
+if __name__ == "__main__":
+    main()
